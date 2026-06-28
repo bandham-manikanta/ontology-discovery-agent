@@ -67,3 +67,8 @@ uvicorn src.main:app --reload --port 8000
     }
   }
   ```
+
+
+## CI/CD Status
+
+Automated deployment configured via GitHub Actions.
