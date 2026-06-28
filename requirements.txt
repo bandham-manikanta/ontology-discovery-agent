@@ -1,0 +1,14 @@
+fastapi>=0.111.0
+uvicorn>=0.30.1
+langchain>=0.2.5
+langchain-community>=0.2.5
+langchain-openai>=0.1.8
+langgraph>=0.0.69
+neo4j>=5.21.0
+openai>=1.35.3
+pydantic>=2.7.4
+python-dotenv>=1.0.1
+mcp>=0.1.0
+google-cloud-tasks>=2.16.0
+langsmith
+

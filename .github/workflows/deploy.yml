@@ -1,0 +1,63 @@
+name: Build and Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: us-central1
+  SERVICE_NAME: ontology-discovery-agent
+  REGISTRY_NAME: ontology-agent
+
+jobs:
+  deploy:
+    name: Deploy Agent to GCP
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    # 1. Authenticate to Google Cloud
+    - name: Google Auth
+      id: auth
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    # 2. Set up Cloud SDK
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    # 3. Configure Docker for Artifact Registry
+    - name: Configure Docker
+      run: |
+        gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+    # 4. Build and Tag Docker Image
+    - name: Build and Push Container
+      run: |
+        IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REGISTRY_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+        LATEST_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REGISTRY_NAME }}/${{ env.SERVICE_NAME }}:latest"
+        
+        # Build the container
+        docker build -t $IMAGE_URI -t $LATEST_URI .
+        
+        # Push both tags
+        docker push $IMAGE_URI
+        docker push $LATEST_URI
+
+    # 5. Deploy to GCP Cloud Run
+    - name: Deploy to Cloud Run
+      run: |
+        IMAGE_URI="${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REGISTRY_NAME }}/${{ env.SERVICE_NAME }}:${{ github.sha }}"
+        
+        gcloud run deploy ${{ env.SERVICE_NAME }} \
+          --image $IMAGE_URI \
+          --region ${{ env.REGION }} \
+          --platform managed \
+          --allow-unauthenticated \
+          --set-env-vars="NEO4J_USER=41538b94,CHAT_MODEL=meta/llama-3.3-70b-instruct,EMBEDDING_MODEL=nvidia/nv-embedqa-e5-v5,NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1,GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCP_LOCATION=${{ env.REGION }},CLOUD_TASKS_QUEUE=ontology-eval-queue" \
+          --set-secrets="NVIDIA_API_KEY=nvidia-api-key:latest,NEO4J_PASSWORD=neo4j-password:latest,NEO4J_URI=neo4j-uri:latest"

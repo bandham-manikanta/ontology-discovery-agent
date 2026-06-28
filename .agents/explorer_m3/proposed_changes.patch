@@ -1,0 +1,99 @@
+diff --git a/src/main.py b/src/main.py
+--- a/src/main.py
++++ b/src/main.py
+@@ -65,7 +65,7 @@ def check_execution_status(state: AgentState) -> str:
+     error = state.get("query_execution_error")
+     retry_count = state.get("cypher_retry_count", 0)
+     if error is not None:
+-        if retry_count < 3:
++        if retry_count < 4:
+             return "correct_cypher"
+         else:
+             return "synthesize_response"
+diff --git a/src/nodes.py b/src/nodes.py
+--- a/src/nodes.py
++++ b/src/nodes.py
+@@ -6,23 +6,13 @@ import re
+ def clean_cypher_query(raw_query: str) -> str:
+     """Strips markdown code blocks and backticks from the generated query."""
+     cleaned = raw_query.strip()
+-    # Remove markdown code fences if present
+-    if cleaned.startswith("```"):
+-        # Match ```cypher or ``` and extract content
+-        match = re.search(r"```(?:cypher)?\s*(.*?)\s*```", cleaned, re.DOTALL | re.IGNORECASE)
+-        if match:
+-            cleaned = match.group(1)
+-        else:
+-            # Fallback split
+-            lines = cleaned.splitlines()
+-            if lines[0].startswith("```"):
+-                lines = lines[1:]
+-            if lines and lines[-1].startswith("```"):
+-                lines = lines[:-1]
+-            cleaned = "\n".join(lines)
++    # Match ```cypher or ``` anywhere in the string and extract content
++    match = re.search(r"```(?:cypher)?\s*(.*?)\s*```", cleaned, re.DOTALL | re.IGNORECASE)
++    if match:
++        cleaned = match.group(1)
++    elif cleaned.startswith("`") and cleaned.endswith("`"):
++        cleaned = cleaned.strip("`")
+     return cleaned.strip()
+ 
+ def route_query_node(state: AgentState) -> Dict[str, Any]:
+@@ -89,7 +79,10 @@ def execute_cypher_node(state: AgentState) -> Dict[str, Any]:
+     generated_cypher = state.get("generated_cypher", "")
+     
+     if not generated_cypher:
+-        return {"query_execution_error": "No Cypher query was generated."}
++        return {
++            "query_execution_error": "No Cypher query was generated.",
++            "cypher_retry_count": state.get("cypher_retry_count", 0) + 1
++        }
+         
+     cleaned_cypher = clean_cypher_query(generated_cypher)
+     print(f"Running Cypher Query:\n{cleaned_cypher}")
+diff --git a/src/database.py b/src/database.py
+--- a/src/database.py
++++ b/src/database.py
+@@ -15,10 +15,14 @@
+ NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
+ NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password123")
+ 
+ NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY")
++if NVIDIA_API_KEY:
++    NVIDIA_API_KEY = NVIDIA_API_KEY.strip()
++if not NVIDIA_API_KEY:
++    NVIDIA_API_KEY = None
++
+ NVIDIA_BASE_URL = os.getenv("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com/v1")
+ CHAT_MODEL = os.getenv("CHAT_MODEL", "meta/llama-3.1-70b-instruct")
+ EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "nvidia/nv-embedqa-e5-v5")
+ 
+ # Initialize Nvidia client
+@@ -120,3 +124,3 @@
+         self.dataset_embeddings = {}
+         for d in self.datasets:
+-            self.dataset_embeddings[d["name"]] = get_embedding(d["description"])
++            self.dataset_embeddings[d["name"]] = get_embedding(d["description"], input_type="passage")
+         
+     def session(self):
+diff --git a/tests/test_e2e_opaque.py b/tests/test_e2e_opaque.py
+--- a/tests/test_e2e_opaque.py
++++ b/tests/test_e2e_opaque.py
+@@ -282,3 +282,3 @@ def test_retry_tier1_max_retries_exceeded(initial_state):
+     # 3 retries max. In main.py: check_execution_status checks if retry_count < 3
+     from src.main import check_execution_status
+     initial_state["query_execution_error"] = "Syntax error"
+-    initial_state["cypher_retry_count"] = 3
++    initial_state["cypher_retry_count"] = 4
+     
+     route = check_execution_status(initial_state)
+     assert route == "synthesize_response"
+@@ -530,3 +530,3 @@ def test_retry_tier2_infinite_loop_prevention(mock_openai, initial_state):
+     # Test that when retry count reaches 3, check_execution_status stops the loop
+     from src.main import check_execution_status
+     initial_state["query_execution_error"] = "Syntax Error"
+-    initial_state["cypher_retry_count"] = 3
++    initial_state["cypher_retry_count"] = 4
+     route = check_execution_status(initial_state)
+     assert route == "synthesize_response"
