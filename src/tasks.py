@@ -43,6 +43,14 @@ def enqueue_evaluation_task(user_query: str, raw_db_results: list, synthesized_r
                 "body": json.dumps(payload).encode("utf-8")
             }
         }
+
+        # Inject OIDC token if service account is available
+        service_account_email = os.getenv("OIDC_SERVICE_ACCOUNT_EMAIL")
+        if service_account_email:
+            task["http_request"]["oidc_token"] = {
+                "service_account_email": service_account_email,
+                "audience": url_to_use.rstrip('/')
+            }
         
         # Create and dispatch the task
         response = client.create_task(request={"parent": parent, "task": task})

@@ -19,13 +19,20 @@ variable "image_uri" {
   description = "The GCR/Artifact Registry container image URI for the FastAPI app"
 }
 
+variable "neo4j_user" {
+  type        = string
+  description = "The username for the Neo4j database"
+  default     = "neo4j"
+}
+
 # 1. Enable Required GCP APIs
 resource "google_project_service" "apis" {
   for_each = toset([
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "vpcaccess.googleapis.com",
-    "aiplatform.googleapis.com" # Vertex AI
+    "aiplatform.googleapis.com", # Vertex AI
+    "cloudtasks.googleapis.com"
   ])
   service            = each.key
   disable_on_destroy = false
@@ -78,6 +85,12 @@ resource "google_secret_manager_secret_iam_member" "neo4j_uri_accessor" {
   secret_id = google_secret_manager_secret.neo4j_uri.secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.cloud_run_sa.email}"
+}
+
+resource "google_project_iam_member" "cloud_run_tasks_enqueuer" {
+  project = var.project_id
+  role    = "roles/cloudtasks.enqueuer"
+  member  = "serviceAccount:${google_service_account.cloud_run_sa.email}"
 }
 
 # 3. Cloud Run V2 Service
@@ -137,7 +150,17 @@ resource "google_cloud_run_v2_service" "ontology_agent" {
       # Non-secret environment variables
       env {
         name  = "NEO4J_USER"
-        value = "41538b94"
+        value = var.neo4j_user
+      }
+
+      env {
+        name  = "VERTEX_ENDPOINT_URL"
+        value = "https://${var.region}-aiplatform.googleapis.com/v1/projects/${var.project_id}/locations/${var.region}/endpoints/${google_vertex_ai_endpoint.llama3_endpoint.name}"
+      }
+
+      env {
+        name  = "OIDC_SERVICE_ACCOUNT_EMAIL"
+        value = google_service_account.cloud_run_sa.email
       }
 
       env {
