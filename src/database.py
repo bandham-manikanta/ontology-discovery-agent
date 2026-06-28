@@ -60,6 +60,12 @@ def get_llm_client() -> OpenAI:
 # Initialize LLM client
 nvidia_client = get_llm_client()
 
+# Initialize Embeddings client (always points to Nvidia NIM)
+embeddings_client = OpenAI(
+    api_key=NVIDIA_API_KEY or "dummy_key",
+    base_url=NVIDIA_BASE_URL
+)
+
 
 def get_embedding(text: str, input_type: str = "query") -> list[float]:
     """Generates embedding using Nvidia NIM API."""
@@ -68,7 +74,7 @@ def get_embedding(text: str, input_type: str = "query") -> list[float]:
         return [0.0] * 1024
     
     try:
-        response = nvidia_client.embeddings.create(
+        response = embeddings_client.embeddings.create(
             input=[text],
             model=EMBEDDING_MODEL,
             extra_body={"input_type": input_type}

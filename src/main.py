@@ -12,7 +12,7 @@ from langgraph.graph import StateGraph, END
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.graph_state import AgentState
-from src.database import get_driver, close_driver, nvidia_client, EMBEDDING_MODEL, NVIDIA_API_KEY
+from src.database import get_driver, close_driver, nvidia_client, embeddings_client, EMBEDDING_MODEL, NVIDIA_API_KEY
 from src.tasks import enqueue_evaluation_task
 from src.nodes import (
     route_query_node,
@@ -132,7 +132,7 @@ async def lifespan(app: FastAPI):
     
     # 2. Check NVIDIA NIM connectivity
     try:
-        nvidia_client.embeddings.create(
+        embeddings_client.embeddings.create(
             input=["test"],
             model=EMBEDDING_MODEL,
             extra_body={"input_type": "query"}
