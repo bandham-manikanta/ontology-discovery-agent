@@ -37,16 +37,26 @@ def get_llm_client() -> OpenAI:
         try:
             import google.auth
             import google.auth.transport.requests
+            import httpx
             
             # Retrieve Google Application Default Credentials (ADC)
             creds, project = google.auth.default()
             auth_req = google.auth.transport.requests.Request()
             creds.refresh(auth_req)
             
+            def rewrite_vertex_url(request: httpx.Request):
+                url_str = str(request.url)
+                if "/chat/completions" in url_str:
+                    new_url = url_str.replace("/chat/completions", ":rawPredict")
+                    request.url = httpx.URL(new_url)
+            
+            http_client = httpx.Client(event_hooks={"request": [rewrite_vertex_url]})
+            
             print(f"Configuring LLM client to use Vertex AI Endpoint: {VERTEX_ENDPOINT_URL}")
             return OpenAI(
                 base_url=VERTEX_ENDPOINT_URL,
-                api_key=creds.token
+                api_key=creds.token,
+                http_client=http_client
             )
         except Exception as e:
             print(f"Warning: Failed to load Google Auth for Vertex AI. Falling back to NVIDIA NIM. Error: {e}")
