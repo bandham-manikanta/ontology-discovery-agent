@@ -22,8 +22,8 @@ sequenceDiagram
     activate App
     App->>DB: Check schema & hybrid search (Vector + Full-Text)
     DB-->>App: Schema & context
-    App->>Vertex: Generate / Synthesize Response
-    Vertex-->>App: Synthesized Response
+    App->>Vertex: Generate Response
+    Vertex-->>App: Generated Response
     App->>Tasks: Enqueue evaluation task (Async)
     App-->>User: Return response (latency < 3s)
     deactivate App
