@@ -4,7 +4,7 @@ import uuid
 from typing import Dict, Any, List
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, Request
 from pydantic import BaseModel
 from langgraph.graph import StateGraph, END
 
@@ -12,7 +12,7 @@ from langgraph.graph import StateGraph, END
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.graph_state import AgentState
-from src.database import get_driver, close_driver, nvidia_client, EMBEDDING_MODEL, NVIDIA_API_KEY
+from src.database import get_driver, close_driver, nvidia_client, embeddings_client, EMBEDDING_MODEL, NVIDIA_API_KEY
 from src.tasks import enqueue_evaluation_task
 from src.nodes import (
     route_query_node,
@@ -90,6 +90,8 @@ def check_execution_status(state: AgentState) -> str:
     retry_count = state.get("cypher_retry_count", 0)
     
     if error is not None:
+        if error == "Modifying Cypher operations are blocked.":
+            return "synthesize_response"
         if retry_count < 5:
             return "correct_cypher"
         else:
@@ -130,7 +132,7 @@ async def lifespan(app: FastAPI):
     
     # 2. Check NVIDIA NIM connectivity
     try:
-        nvidia_client.embeddings.create(
+        embeddings_client.embeddings.create(
             input=["test"],
             model=EMBEDDING_MODEL,
             extra_body={"input_type": "query"}
@@ -184,7 +186,11 @@ async def process_ontology_query(payload: QueryPayload, background_tasks: Backgr
     
     # Generate a unique run ID for tracing and evaluation matching
     run_uuid = uuid.uuid4()
-    service_url = str(request.base_url)
+    host = request.url.hostname
+    if host and (host == "localhost" or host == "127.0.0.1" or host.endswith(".run.app")):
+        service_url = str(request.base_url)
+    else:
+        service_url = os.getenv("SERVICE_URL", "")
     
     # Initialize LangGraph state
     initial_state = {
@@ -235,8 +241,48 @@ async def process_ontology_query(payload: QueryPayload, background_tasks: Backgr
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Workflow execution failed: {e}")
 
+async def verify_tasks_token(request: Request):
+    # Bypass verification in local/test environment if not real integration
+    if os.getenv("REAL_INTEGRATION") != "true":
+        return {"email": "mock-tasks-sa@project.iam.gserviceaccount.com"}
+
+    authorization = request.headers.get("Authorization")
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header missing or invalid")
+    
+    token = authorization.split(" ")[1]
+    try:
+        from google.oauth2 import id_token
+        from google.auth.transport import requests
+        
+        # The audience is the URL of the service.
+        service_url = os.getenv("SERVICE_URL")
+        # Fallback to the request's base URL (without trailing slash) if SERVICE_URL is not set
+        audience = service_url.rstrip("/") if service_url else str(request.base_url).rstrip("/")
+        
+        # Verify the OIDC token
+        id_info = id_token.verify_oauth2_token(token, requests.Request(), audience=audience)
+        
+        if id_info.get("iss") not in ["accounts.google.com", "https://accounts.google.com"]:
+            raise ValueError("Invalid issuer")
+            
+        email = id_info.get("email")
+        if not email:
+            raise ValueError("Email claim missing in token")
+            
+        project_id = os.getenv("GCP_PROJECT_ID")
+        if project_id:
+            expected_email = f"ontology-agent-sa@{project_id}.iam.gserviceaccount.com"
+            if email != expected_email:
+                raise ValueError(f"Unauthorized service account: {email}")
+                
+        return id_info
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"OIDC token verification failed: {e}")
+
+
 @app.post("/evaluate")
-async def evaluate_query_response(payload: EvalPayload):
+async def evaluate_query_response(payload: EvalPayload, token_info: dict = Depends(verify_tasks_token)):
     """
     Asynchronous endpoint invoked by GCP Cloud Tasks.
     Runs the LLM-as-a-Judge groundedness audit and logs the feedback to LangSmith.

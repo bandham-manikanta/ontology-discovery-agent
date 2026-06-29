@@ -15,6 +15,9 @@ jobs:
   deploy:
     name: Deploy Agent to GCP
     runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+      id-token: 'write'
 
     steps:
     - name: Checkout Code
@@ -25,7 +28,8 @@ jobs:
       id: auth
       uses: google-github-actions/auth@v2
       with:
-        credentials_json: ${{ secrets.GCP_SA_KEY }}
+        workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+        service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
 
     # 2. Set up Cloud SDK
     - name: Set up Cloud SDK
@@ -59,5 +63,7 @@ jobs:
           --region ${{ env.REGION }} \
           --platform managed \
           --allow-unauthenticated \
+          --port 8000 \
           --set-env-vars="NEO4J_USER=41538b94,CHAT_MODEL=meta/llama-3.3-70b-instruct,EMBEDDING_MODEL=nvidia/nv-embedqa-e5-v5,NVIDIA_BASE_URL=https://integrate.api.nvidia.com/v1,GCP_PROJECT_ID=${{ env.PROJECT_ID }},GCP_LOCATION=${{ env.REGION }},CLOUD_TASKS_QUEUE=ontology-eval-queue" \
           --set-secrets="NVIDIA_API_KEY=nvidia-api-key:latest,NEO4J_PASSWORD=neo4j-password:latest,NEO4J_URI=neo4j-uri:latest"
+
