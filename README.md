@@ -12,30 +12,30 @@ The agent coordinates a multi-agent team using LangGraph state machines, retriev
 sequenceDiagram
     autonumber
     actor User
-    participant App as FastAPI (Cloud Run)
-    participant DB as Neo4j Database
-    participant Vertex as Vertex AI Endpoint (vLLM)
-    participant Tasks as GCP Cloud Tasks
-    participant Worker as /evaluate Endpoint
+    participant App as "FastAPI on Cloud Run"
+    participant DB as "Neo4j Database"
+    participant Vertex as "Vertex AI vLLM Endpoint"
+    participant Tasks as "GCP Cloud Tasks"
+    participant Worker as "Evaluate Worker"
 
-    User->>App: POST /query {"query": "..."}
+    User->>App: POST /query
     activate App
-    App->>DB: Check schema & hybrid search (Vector + Full-Text)
-    DB-->>App: Schema & context
-    App->>Vertex: Generate Response
-    Vertex-->>App: Generated Response
-    App->>Tasks: Enqueue evaluation task (Async)
-    App-->>User: Return response (latency < 3s)
+    App->>DB: Hybrid search vector and full-text
+    DB-->>App: Schema and context
+    App->>Vertex: Generate response
+    Vertex-->>App: Generated response
+    App->>Tasks: Enqueue evaluation task async
+    App-->>User: Return response under 3s
     deactivate App
 
-    Note over Tasks, Worker: Out-of-Band Evaluation
-    Tasks->>Worker: POST /evaluate (with OIDC Token)
+    Note over Tasks, Worker: Out-of-band evaluation
+    Tasks->>Worker: POST /evaluate with OIDC token
     activate Worker
-    Worker->>Worker: Verify OIDC Token (google-auth)
-    Worker->>Vertex: Run Groundedness Audit
-    Vertex-->>Worker: Audit Result
+    Worker->>Worker: Verify OIDC token
+    Worker->>Vertex: Run groundedness audit
+    Vertex-->>Worker: Audit result
     Worker->>Worker: Log feedback to LangSmith
-    Worker-->>Tasks: 200 OK (Task Completed)
+    Worker-->>Tasks: 200 OK task completed
     deactivate Worker
 ```
 
